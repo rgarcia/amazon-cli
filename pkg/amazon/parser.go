@@ -15,6 +15,9 @@ var (
 	spaceRe        = regexp.MustCompile(`\s+`)
 	orderIDRe      = regexp.MustCompile(`\b\d{3}-\d{7}-\d{7}\b`)
 	startIndexRe   = regexp.MustCompile(`[?&]startIndex=(\d+)`)
+	moneyRe        = regexp.MustCompile(`\$[0-9][0-9,]*(?:\.[0-9]{2})?`)
+	grandTotalRe   = regexp.MustCompile(`(?i)\bgrand total:\s*(\$[0-9][0-9,]*(?:\.[0-9]{2})?)`)
+	orderTotalRe   = regexp.MustCompile(`(?i)\border total:\s*(\$[0-9][0-9,]*(?:\.[0-9]{2})?)`)
 	statusPatterns = []string{"Delivered", "Arriving", "Shipped", "Cancelled", "Canceled", "Returned", "Refunded", "Running late", "Out for delivery", "Preparing for shipment"}
 )
 
@@ -41,7 +44,7 @@ func ParseOrdersPage(html, pageURL string, opts ListOrdersOptions) (*OrdersPage,
 	if len(orders) == 0 {
 		doc.Find("a[href*='order-details'], a[href*='orderID=']").Each(func(_ int, s *goquery.Selection) {
 			href, _ := s.Attr("href")
-			id := orderIDFromString(href + " " + cleanText(s.Text()))
+			id := orderIDFromString(href + " " + selectionText(s))
 			if id == "" || seen[id] {
 				return
 			}
@@ -71,14 +74,14 @@ func ParseOrderDetail(html, pageURL, orderID string) (*OrderDetail, error) {
 	if err != nil {
 		return nil, err
 	}
-	text := cleanText(doc.Text())
+	text := selectionText(doc.Selection)
 	id := firstNonEmpty(orderID, orderIDFromString(text))
 	detail := &OrderDetail{
 		Order: Order{
 			ID:          id,
 			OrderPlaced: extractBetweenLabels(text, "ORDER PLACED", "TOTAL", "ORDER #"),
-			Total:       extractBetweenLabels(text, "TOTAL", "SHIP TO", "ORDER #"),
-			ShipTo:      extractBetweenLabels(text, "SHIP TO", "ORDER #"),
+			Total:       extractOrderTotal(text),
+			ShipTo:      extractShipTo(text),
 			Status:      extractStatus(text),
 		},
 		URL: pageURL,
@@ -90,7 +93,7 @@ func ParseOrderDetail(html, pageURL, orderID string) (*OrderDetail, error) {
 }
 
 func parseOrderCard(s *goquery.Selection, pageURL string) Order {
-	text := cleanText(s.Text())
+	text := selectionText(s)
 	id, _ := s.Attr("data-order-id")
 	if id == "" {
 		id = orderIDFromString(text)
@@ -107,8 +110,8 @@ func parseOrderCard(s *goquery.Selection, pageURL string) Order {
 	return Order{
 		ID:          id,
 		OrderPlaced: extractBetweenLabels(text, "ORDER PLACED", "TOTAL", "SHIP TO", "ORDER #"),
-		Total:       extractBetweenLabels(text, "TOTAL", "SHIP TO", "ORDER #"),
-		ShipTo:      extractBetweenLabels(text, "SHIP TO", "ORDER #"),
+		Total:       extractOrderTotal(text),
+		ShipTo:      extractShipTo(text),
 		Status:      extractStatus(text),
 		Items:       extractItems(s, pageURL),
 		DetailURL:   detailURL,
@@ -119,11 +122,14 @@ func extractItems(s *goquery.Selection, pageURL string) []OrderItem {
 	var items []OrderItem
 	seen := make(map[string]bool)
 	s.Find(".yohtmlc-product-title, a[href*='/dp/'], a[href*='/gp/product/']").Each(func(_ int, el *goquery.Selection) {
-		title := cleanText(el.Text())
+		title := selectionText(el)
 		if title == "" || seen[title] || isActionText(title) {
 			return
 		}
 		href, _ := el.Attr("href")
+		if isFooterProductLink(href) {
+			return
+		}
 		items = append(items, OrderItem{Title: title, URL: absoluteURL(pageURL, href)})
 		seen[title] = true
 	})
@@ -144,6 +150,34 @@ func extractBetweenLabels(text string, label string, nextLabels ...string) strin
 		}
 	}
 	return cleanText(rest[:end])
+}
+
+func extractOrderTotal(text string) string {
+	if m := grandTotalRe.FindStringSubmatch(text); len(m) == 2 {
+		return m[1]
+	}
+	if m := orderTotalRe.FindStringSubmatch(text); len(m) == 2 {
+		return m[1]
+	}
+	totalText := extractBetweenLabels(text, "TOTAL", "SHIP TO", "ORDER #", "PAYMENT METHOD", "ORDER SUMMARY", "ARRIVING", "DELIVERED", "YOUR RECENTLY VIEWED", "BACK TO TOP")
+	if m := moneyRe.FindString(totalText); m != "" {
+		return m
+	}
+	return totalText
+}
+
+func extractShipTo(text string) string {
+	return extractBetweenLabels(text,
+		"SHIP TO",
+		"ORDER #",
+		"PAYMENT METHOD",
+		"ORDER SUMMARY",
+		"ITEM(S) SUBTOTAL",
+		"ARRIVING",
+		"DELIVERED",
+		"YOUR RECENTLY VIEWED",
+		"BACK TO TOP",
+	)
 }
 
 func extractStatus(text string) string {
@@ -188,7 +222,10 @@ func extractSectionLines(doc *goquery.Document, contains string) []string {
 		if !strings.Contains(strings.ToLower(class+" "+id), contains) {
 			return
 		}
-		text := cleanText(s.Text())
+		text := selectionText(s)
+		if contains == "address" && strings.Contains(strings.ToLower(text), "ending in") {
+			return
+		}
 		if text != "" && len(text) < 300 {
 			out = append(out, text)
 		}
@@ -204,6 +241,12 @@ func cleanText(s string) string {
 	return strings.TrimSpace(spaceRe.ReplaceAllString(s, " "))
 }
 
+func selectionText(s *goquery.Selection) string {
+	clone := s.Clone()
+	clone.Find("script, style, noscript, template, svg").Remove()
+	return cleanText(clone.Text())
+}
+
 func isActionText(s string) bool {
 	lower := strings.ToLower(s)
 	actions := []string{"buy it again", "view item", "write a product review", "return or replace", "track package", "invoice"}
@@ -213,6 +256,11 @@ func isActionText(s string) bool {
 		}
 	}
 	return len(s) < 3
+}
+
+func isFooterProductLink(href string) bool {
+	lower := strings.ToLower(href)
+	return strings.Contains(lower, "ref_=footer") || strings.Contains(lower, "plattr=")
 }
 
 func looksLikeSignIn(html string) bool {

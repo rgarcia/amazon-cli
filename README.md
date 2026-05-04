@@ -39,7 +39,6 @@ to Amazon.
 
    ```sh
    npm install -g @onkernel/cli
-   export KERNEL_API_KEY=sk_...
    ```
 
 2. Create a browser profile. Choose any profile name you want.
@@ -82,20 +81,11 @@ The config file is stored at:
 ~/.config/amzn/config.yaml
 ```
 
-You can also configure the CLI with environment variables:
+Browser session state is cached under the standard local state directory:
 
-```sh
-export KERNEL_API_KEY=sk_...
-export AMZN_KERNEL_PROFILE_NAME=amazon
+```text
+~/.local/state/amzn/browsers.json
 ```
-
-Supported environment variables:
-
-- `KERNEL_API_KEY` or `AMZN_KERNEL_API_KEY`
-- `KERNEL_BASE_URL` or `AMZN_KERNEL_BASE_URL`
-- `AMZN_KERNEL_PROFILE_ID`
-- `AMZN_KERNEL_PROFILE_NAME`
-- `AMZN_PROFILE`
 
 ## Usage
 
@@ -139,6 +129,10 @@ Reuse an existing browser session:
 ```sh
 amzn --browser-id <browser-session-id> orders list --time-filter year-2026
 ```
+
+Without `--browser-id`, `amzn` reuses the cached browser for the active config
+profile. If Kernel reports that browser as missing, the CLI creates a new
+profile-backed browser and updates the cache.
 
 ## Development
 

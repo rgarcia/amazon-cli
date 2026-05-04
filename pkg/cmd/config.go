@@ -47,6 +47,25 @@ func getConfigPath() string {
 	return filepath.Join(dir, "config.yaml")
 }
 
+func getStateDir() string {
+	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
+		return filepath.Join(dir, "amzn")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "state", "amzn")
+}
+
+func getBrowserCachePath() string {
+	dir := getStateDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "browsers.json")
+}
+
 func loadConfig() *CLIConfig {
 	cfg := &CLIConfig{Profiles: make(map[string]ProfileConfig)}
 	k := koanf.New(".")
@@ -64,12 +83,6 @@ func resolveProfile(cmd *cli.Command) string {
 	if p := cmd.Root().String("profile"); p != "" {
 		return p
 	}
-	if p := os.Getenv("AMZN_PROFILE"); p != "" {
-		return p
-	}
-	if p := os.Getenv("KERNEL_PROFILE"); p != "" {
-		return p
-	}
 	cfg := loadConfig()
 	if cfg.DefaultProfile != "" {
 		return cfg.DefaultProfile
@@ -80,12 +93,6 @@ func resolveProfile(cmd *cli.Command) string {
 func resolveProfileConfig(cmd *cli.Command) ProfileConfig {
 	cfg := loadConfig()
 	p := cfg.Profiles[resolveProfile(cmd)]
-	if v := os.Getenv("AMZN_KERNEL_PROFILE_ID"); v != "" {
-		p.KernelProfileID = v
-	}
-	if v := os.Getenv("AMZN_KERNEL_PROFILE_NAME"); v != "" {
-		p.KernelProfileName = v
-	}
 	if p.AmazonBaseURL == "" {
 		p.AmazonBaseURL = defaultAmazonBaseURL
 	}
@@ -93,26 +100,14 @@ func resolveProfileConfig(cmd *cli.Command) ProfileConfig {
 }
 
 func resolveKernelAPIKey(cmd *cli.Command) (string, error) {
-	if k := os.Getenv("AMZN_KERNEL_API_KEY"); k != "" {
-		return k, nil
-	}
 	cfg := resolveProfileConfig(cmd)
 	if cfg.KernelAPIKey != "" {
 		return cfg.KernelAPIKey, nil
 	}
-	if k := os.Getenv("KERNEL_API_KEY"); k != "" {
-		return k, nil
-	}
-	return "", fmt.Errorf("no Kernel API key found. Set KERNEL_API_KEY, AMZN_KERNEL_API_KEY, or run 'amzn config init'")
+	return "", fmt.Errorf("no Kernel API key found in the active config profile. Run 'amzn config init' to save one")
 }
 
 func resolveKernelBaseURL(cmd *cli.Command) string {
-	if u := os.Getenv("AMZN_KERNEL_BASE_URL"); u != "" {
-		return u
-	}
-	if u := os.Getenv("KERNEL_BASE_URL"); u != "" {
-		return strings.Trim(u, `"`)
-	}
 	cfg := resolveProfileConfig(cmd)
 	if cfg.KernelBaseURL != "" {
 		return cfg.KernelBaseURL

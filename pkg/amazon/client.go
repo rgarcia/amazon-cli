@@ -3,7 +3,9 @@ package amazon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -13,6 +15,7 @@ import (
 )
 
 type BrowserTransport interface {
+	CreateBrowser(ctx context.Context, opts Options) (string, error)
 	Curl(ctx context.Context, browserID string, req CurlRequest) (*CurlResponse, error)
 	RenderHTML(ctx context.Context, browserID string, targetURL string, timeoutSeconds int) (string, error)
 	DeleteBrowser(ctx context.Context, browserID string) error
@@ -35,54 +38,59 @@ type Client struct {
 	opts             Options
 	transport        BrowserTransport
 	browserID        string
-	createdBrowserID string
+	refreshOnMissing bool
 }
 
 func NewClient(ctx context.Context, opts Options) (*Client, error) {
-	if opts.AmazonBaseURL == "" {
-		opts.AmazonBaseURL = "https://www.amazon.com"
-	}
-	if opts.BrowserTimeout <= 0 {
-		opts.BrowserTimeout = 300
-	}
-	if opts.RequestTimeout <= 0 {
-		opts.RequestTimeout = 30
-	}
+	opts = normalizeOptions(opts)
 
 	transport, err := NewKernelTransport(opts)
 	if err != nil {
 		return nil, err
 	}
-	client := &Client{opts: opts, transport: transport, browserID: opts.BrowserID}
+	return newClient(ctx, opts, transport)
+}
+
+func newClient(ctx context.Context, opts Options, transport BrowserTransport) (*Client, error) {
+	client := &Client{
+		opts:             opts,
+		transport:        transport,
+		browserID:        opts.BrowserID,
+		refreshOnMissing: opts.BrowserID == "",
+	}
 	if client.browserID == "" {
-		id, err := transport.CreateBrowser(ctx, opts)
-		if err != nil {
+		if id, ok := readCachedBrowserID(opts); ok {
+			client.browserID = id
+			if opts.Debug {
+				fmt.Fprintf(os.Stderr, "reusing cached Kernel browser %s\n", id)
+			}
+		} else if err := client.createBrowser(ctx); err != nil {
 			return nil, err
-		}
-		client.browserID = id
-		client.createdBrowserID = id
-		if opts.Debug {
-			fmt.Fprintf(os.Stderr, "created Kernel browser %s\n", id)
 		}
 	}
 	return client, nil
 }
 
 func NewClientWithTransport(opts Options, transport BrowserTransport, browserID string) *Client {
+	opts = normalizeOptions(opts)
+	return &Client{opts: opts, transport: transport, browserID: browserID, refreshOnMissing: browserID == ""}
+}
+
+func normalizeOptions(opts Options) Options {
 	if opts.AmazonBaseURL == "" {
 		opts.AmazonBaseURL = "https://www.amazon.com"
+	}
+	if opts.BrowserTimeout <= 0 {
+		opts.BrowserTimeout = 600
 	}
 	if opts.RequestTimeout <= 0 {
 		opts.RequestTimeout = 30
 	}
-	return &Client{opts: opts, transport: transport, browserID: browserID}
+	return opts
 }
 
 func (c *Client) Close(ctx context.Context) error {
-	if c.createdBrowserID == "" || c.opts.KeepBrowser {
-		return nil
-	}
-	return c.transport.DeleteBrowser(ctx, c.createdBrowserID)
+	return nil
 }
 
 func (c *Client) ListOrders(ctx context.Context, opts ListOrdersOptions) (*OrdersPage, error) {
@@ -97,7 +105,7 @@ func (c *Client) ListOrders(ctx context.Context, opts ListOrdersOptions) (*Order
 		return nil, err
 	}
 	if len(page.Orders) == 0 && needsRenderedDOM(body) {
-		rendered, err := c.transport.RenderHTML(ctx, c.browserID, u, c.opts.RequestTimeout)
+		rendered, err := c.renderHTML(ctx, u)
 		if err != nil {
 			return nil, err
 		}
@@ -124,7 +132,7 @@ func (c *Client) GetOrder(ctx context.Context, orderID string) (*OrderDetail, er
 		return nil, err
 	}
 	if detail.ID == "" || len(detail.Items) == 0 && needsRenderedDOM(body) {
-		rendered, err := c.transport.RenderHTML(ctx, c.browserID, u, c.opts.RequestTimeout)
+		rendered, err := c.renderHTML(ctx, u)
 		if err != nil {
 			return nil, err
 		}
@@ -140,7 +148,7 @@ func (c *Client) get(ctx context.Context, targetURL string) (string, error) {
 	if c.opts.Debug {
 		fmt.Fprintf(os.Stderr, "GET %s via browser %s\n", targetURL, c.browserID)
 	}
-	resp, err := c.transport.Curl(ctx, c.browserID, CurlRequest{
+	resp, err := c.curl(ctx, CurlRequest{
 		Method: "GET",
 		URL:    targetURL,
 		Headers: map[string]string{
@@ -158,11 +166,68 @@ func (c *Client) get(ctx context.Context, targetURL string) (string, error) {
 	return resp.Body, nil
 }
 
+func (c *Client) curl(ctx context.Context, req CurlRequest) (*CurlResponse, error) {
+	resp, err := c.transport.Curl(ctx, c.browserID, req)
+	if isMissingBrowserError(err) && c.refreshOnMissing {
+		if refreshErr := c.replaceMissingBrowser(ctx); refreshErr != nil {
+			return nil, refreshErr
+		}
+		return c.transport.Curl(ctx, c.browserID, req)
+	}
+	return resp, err
+}
+
+func (c *Client) renderHTML(ctx context.Context, targetURL string) (string, error) {
+	html, err := c.transport.RenderHTML(ctx, c.browserID, targetURL, c.opts.RequestTimeout)
+	if isMissingBrowserError(err) && c.refreshOnMissing {
+		if refreshErr := c.replaceMissingBrowser(ctx); refreshErr != nil {
+			return "", refreshErr
+		}
+		return c.transport.RenderHTML(ctx, c.browserID, targetURL, c.opts.RequestTimeout)
+	}
+	return html, err
+}
+
+func (c *Client) replaceMissingBrowser(ctx context.Context) error {
+	oldID := c.browserID
+	if c.opts.Debug {
+		fmt.Fprintf(os.Stderr, "Kernel browser %s not found; creating replacement\n", oldID)
+	}
+	if err := c.createBrowser(ctx); err != nil {
+		return fmt.Errorf("Kernel browser %s not found and creating replacement failed: %w", oldID, err)
+	}
+	return nil
+}
+
+func (c *Client) createBrowser(ctx context.Context) error {
+	id, err := c.transport.CreateBrowser(ctx, c.opts)
+	if err != nil {
+		return err
+	}
+	c.browserID = id
+	if err := writeCachedBrowserID(c.opts, id); err != nil && c.opts.Debug {
+		fmt.Fprintf(os.Stderr, "cache browser: %s\n", err)
+	}
+	if c.opts.Debug {
+		fmt.Fprintf(os.Stderr, "created Kernel browser %s\n", id)
+	}
+	return nil
+}
+
+func isMissingBrowserError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apierr *kernel.Error
+	return errors.As(err, &apierr) && apierr.StatusCode == http.StatusNotFound
+}
+
 func (c *Client) ordersURL(timeFilter string, startIndex int) string {
 	base := strings.TrimRight(c.opts.AmazonBaseURL, "/")
 	v := url.Values{}
 	v.Set("orderFilter", timeFilter)
 	v.Set("startIndex", fmt.Sprintf("%d", startIndex))
+	v.Set("disableCsd", "missing-library")
 	return base + "/gp/your-account/order-history?" + v.Encode()
 }
 
@@ -170,6 +235,7 @@ func (c *Client) orderURL(orderID string) string {
 	base := strings.TrimRight(c.opts.AmazonBaseURL, "/")
 	v := url.Values{}
 	v.Set("orderID", orderID)
+	v.Set("disableCsd", "missing-library")
 	return base + "/gp/your-account/order-details?" + v.Encode()
 }
 
@@ -221,12 +287,18 @@ func newBrowserNewParams(opts Options) kernel.BrowserNewParams {
 	params := kernel.BrowserNewParams{
 		TimeoutSeconds: kernel.Int(int64(opts.BrowserTimeout)),
 	}
-	if opts.KernelProfileID != "" {
-		params.Profile = kernel.BrowserProfileParam{ID: kernel.String(opts.KernelProfileID)}
-	} else {
-		params.Profile = kernel.BrowserProfileParam{Name: kernel.String(opts.KernelProfileName)}
-	}
+	params.Profile = newBrowserProfileParam(opts)
 	return params
+}
+
+func newBrowserProfileParam(opts Options) kernel.BrowserProfileParam {
+	if opts.KernelProfileID != "" {
+		return kernel.BrowserProfileParam{ID: kernel.String(opts.KernelProfileID)}
+	}
+	if opts.KernelProfileName != "" {
+		return kernel.BrowserProfileParam{Name: kernel.String(opts.KernelProfileName)}
+	}
+	return kernel.BrowserProfileParam{}
 }
 
 func (t *KernelTransport) Curl(ctx context.Context, browserID string, req CurlRequest) (*CurlResponse, error) {

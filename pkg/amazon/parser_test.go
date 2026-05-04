@@ -59,3 +59,52 @@ func TestParseOrderDetail(t *testing.T) {
 	assert.Contains(t, order.Payments[0], "Visa")
 	assert.Contains(t, order.Addresses[0], "Seattle")
 }
+
+func TestParseOrderDetailIgnoresScriptText(t *testing.T) {
+	html := `
+<html><body>
+  <h1>Order Details</h1>
+  <div>
+    ORDER PLACED May 3, 2026
+    TOTAL
+    <script>
+      const TOTAL_WIDTH_TAKEN_IN_PAGE = 1000;
+      window.ue && ue.count && ue.count('CSMLibrarySize', 102118);
+    </script>
+    $19.99
+    SHIP TO Raf
+    ORDER # 113-0964028-0277852
+  </div>
+  <div>Arriving tomorrow</div>
+  <a href="/dp/B000TEST">Replacement Charger</a>
+</body></html>`
+
+	order, err := ParseOrderDetail(html, "https://www.amazon.com/gp/your-account/order-details?orderID=113-0964028-0277852", "113-0964028-0277852")
+	require.NoError(t, err)
+	assert.Equal(t, "May 3, 2026", order.OrderPlaced)
+	assert.Equal(t, "$19.99", order.Total)
+	assert.NotContains(t, order.Total, "TOTAL_WIDTH_TAKEN_IN_PAGE")
+	assert.Equal(t, "Raf", order.ShipTo)
+	assert.Equal(t, "Arriving", order.Status)
+}
+
+func TestParseOrderDetailUsesBoundedSummaryFields(t *testing.T) {
+	html := `
+<html><body>
+  <div>ORDER PLACED May 3, 2026 TOTAL: $8.99 Shipping & Handling: $0.00 Grand Total: $9.77 Arriving today</div>
+  <div>SHIP TO Rafael Garcia 354 FAIR OAKS ST Payment method AMEX ending in 2000 Order Summary Item(s) Subtotal: $8.99</div>
+  <a href="/dp/B0DM9R266X?ref_=ppx_hzod_title_dt_b_fed_asin_title_0_0">Superer 5V Fast Charger</a>
+  <a href="/dp/product/B084KP3NG6?plattr=SCFOOT&ref_=footer_ACB">Amazon Secured Card</a>
+  <div class="payment-info">Payment method AMEX ending in 2000</div>
+  <div class="shipping-address">AMEX ending in 2000</div>
+  <footer>Back to top Get to Know Us Careers</footer>
+</body></html>`
+
+	order, err := ParseOrderDetail(html, "https://www.amazon.com/gp/your-account/order-details?orderID=113-0964028-0277852", "113-0964028-0277852")
+	require.NoError(t, err)
+	assert.Equal(t, "$9.77", order.Total)
+	assert.Equal(t, "Rafael Garcia 354 FAIR OAKS ST", order.ShipTo)
+	require.Len(t, order.Items, 1)
+	assert.Equal(t, "Superer 5V Fast Charger", order.Items[0].Title)
+	assert.Empty(t, order.Addresses)
+}

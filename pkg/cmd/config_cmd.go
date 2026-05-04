@@ -48,7 +48,10 @@ func handleConfigInit(_ context.Context, _ *cli.Command) error {
 	}
 
 	current := cfg.Profiles[name]
-	apiKey := prompt(reader, "Kernel API key (blank to use KERNEL_API_KEY)", "")
+	apiKey := prompt(reader, "Kernel API key", current.KernelAPIKey)
+	if apiKey == "" {
+		return fmt.Errorf("Kernel API key is required")
+	}
 	profileID := prompt(reader, "Kernel browser profile ID (optional)", current.KernelProfileID)
 	profileName := prompt(reader, "Kernel browser profile name", current.KernelProfileName)
 	if profileID == "" && profileName == "" {

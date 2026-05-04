@@ -30,14 +30,10 @@ func init() {
 				Name:  "browser-id",
 				Usage: "Existing Kernel browser session ID to reuse",
 			},
-			&cli.BoolFlag{
-				Name:  "keep-browser",
-				Usage: "Keep browser sessions created by this command",
-			},
 			&cli.IntFlag{
 				Name:  "browser-timeout",
 				Usage: "Kernel browser inactivity timeout in seconds",
-				Value: 300,
+				Value: 600,
 			},
 			&cli.IntFlag{
 				Name:  "request-timeout",

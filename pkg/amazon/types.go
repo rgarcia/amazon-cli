@@ -7,8 +7,9 @@ type Options struct {
 	KernelProfileName string
 	AmazonBaseURL     string
 	BrowserID         string
-	KeepBrowser       bool
 	BrowserTimeout    int
+	BrowserCachePath  string
+	BrowserCacheKey   string
 	RequestTimeout    int
 	Debug             bool
 }
