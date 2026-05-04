@@ -198,28 +198,6 @@ func (c *Client) GetProduct(ctx context.Context, asin string) (*ProductDetail, e
 }
 
 func (c *Client) get(ctx context.Context, targetURL string) (string, error) {
-	body, err := c.fetch(ctx, targetURL)
-	if err != nil {
-		return "", err
-	}
-	refreshed := false
-	if looksLikeSignIn(body) && c.refreshOnMissing {
-		if refreshErr := c.replaceUnavailableBrowser(ctx); refreshErr != nil {
-			return "", refreshErr
-		}
-		refreshed = true
-		body, err = c.fetch(ctx, targetURL)
-		if err != nil {
-			return "", err
-		}
-	}
-	if looksLikeSignIn(body) {
-		return "", signInPageError(refreshed)
-	}
-	return body, nil
-}
-
-func (c *Client) fetch(ctx context.Context, targetURL string) (string, error) {
 	if c.opts.Debug {
 		fmt.Fprintf(os.Stderr, "GET %s via browser %s\n", targetURL, c.browserID)
 	}
@@ -254,23 +232,11 @@ func (c *Client) curl(ctx context.Context, req CurlRequest) (*CurlResponse, erro
 
 func (c *Client) renderHTML(ctx context.Context, targetURL string) (string, error) {
 	html, err := c.transport.RenderHTML(ctx, c.browserID, targetURL, c.opts.RequestTimeout)
-	refreshed := false
 	if isUnavailableBrowserError(err) && c.refreshOnMissing {
 		if refreshErr := c.replaceUnavailableBrowser(ctx); refreshErr != nil {
 			return "", refreshErr
 		}
-		refreshed = true
-		html, err = c.transport.RenderHTML(ctx, c.browserID, targetURL, c.opts.RequestTimeout)
-	}
-	if err == nil && looksLikeSignIn(html) && c.refreshOnMissing {
-		if refreshErr := c.replaceUnavailableBrowser(ctx); refreshErr != nil {
-			return "", refreshErr
-		}
-		refreshed = true
-		html, err = c.transport.RenderHTML(ctx, c.browserID, targetURL, c.opts.RequestTimeout)
-	}
-	if err == nil && looksLikeSignIn(html) {
-		return "", signInPageError(refreshed)
+		return c.transport.RenderHTML(ctx, c.browserID, targetURL, c.opts.RequestTimeout)
 	}
 	return html, err
 }
@@ -323,13 +289,6 @@ func kernelErrorMessage(apierr *kernel.Error) string {
 		return ""
 	}
 	return strings.ToLower(strings.TrimSpace(body.Message))
-}
-
-func signInPageError(refreshed bool) error {
-	if refreshed {
-		return fmt.Errorf("Amazon sign-in page returned from Kernel browser; created a fresh browser but Amazon still requires login")
-	}
-	return fmt.Errorf("Amazon sign-in page returned from Kernel browser; Amazon requires login")
 }
 
 func (c *Client) ordersURL(timeFilter string, startIndex int) string {
