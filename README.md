@@ -1,8 +1,8 @@
 # amazon-cli
 
 `amazon-cli` provides `amzn`, a small command-line interface for Amazon.com
-order history. It uses [Kernel](https://www.kernel.sh/) cloud browsers and
-their [`browser curl`](https://www.kernel.sh/docs/browsers/curl) feature to
+orders and products. It uses [Kernel](https://www.kernel.sh/) cloud browsers
+and their [`browser curl`](https://www.kernel.sh/docs/browsers/curl) feature to
 route requests through Chromium's network stack and inherit the cookies from an
 authenticated browser profile.
 
@@ -10,6 +10,8 @@ authenticated browser profile.
 
 - List Amazon orders by page, start index, and time filter
 - Fetch details for a single order
+- Search Amazon products and mark sponsored results
+- Fetch details for a single product
 - Reuse an authenticated Kernel browser profile
 - Output human-readable tables, JSON, JSON Lines, YAML, or raw JSON
 - Transform JSON output with GJSON expressions
@@ -32,8 +34,7 @@ make build
 
 ## Kernel Setup
 
-You need a Kernel API key and a Kernel browser profile that is already signed in
-to Amazon.
+You need a Kernel API key and a Kernel Managed Auth connection for Amazon.
 
 1. Install and authenticate the Kernel CLI.
 
@@ -41,27 +42,24 @@ to Amazon.
    npm install -g @onkernel/cli
    ```
 
-2. Create a browser profile. Choose any profile name you want.
+2. Choose a Kernel profile name for Amazon, for example `amazon`, and create a
+   Managed Auth connection for Amazon.
 
    ```sh
-   kernel profiles create --name amazon
+   kernel auth connections create --domain amazon.com --profile-name amazon
    ```
 
-3. Open a browser using that profile and save changes back to it.
+   Copy the returned connection ID.
+
+3. Start the login flow.
 
    ```sh
-   kernel browsers create --profile-name amazon --save-changes -o json
+   kernel auth connections login <connection-id>
    ```
 
-4. Open the browser's live view URL from the JSON output, sign in to Amazon, and
-   verify that the orders page works in the browser.
-
-5. Delete the browser when you are done. The profile remains available for
-   future CLI runs.
-
-   ```sh
-   kernel browsers delete <browser-session-id>
-   ```
+4. Open the hosted URL printed by the command and complete the Amazon login
+   flow. Kernel saves the authenticated session to the profile for future
+   browser sessions.
 
 ## CLI Setup
 
@@ -112,11 +110,28 @@ amzn orders get 111-1111111-1111111
 
 By default, single-order details are shown in a human-readable detail view.
 
+Search products:
+
+```sh
+amzn product search "distilled water"
+```
+
+Get a single product by ASIN:
+
+```sh
+amzn product get B087Z5WDJ2
+```
+
+By default, product search prints a table with a sponsored column, and product
+details are shown in a human-readable detail view.
+
 Use structured output:
 
 ```sh
 amzn --output json orders list --time-filter year-2026
 amzn --output json orders get 111-1111111-1111111
+amzn --output json product search "wireless mouse"
+amzn --output yaml product get B087Z5WDJ2
 amzn --output yaml orders get 111-1111111-1111111
 ```
 

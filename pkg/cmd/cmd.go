@@ -59,6 +59,7 @@ func init() {
 		},
 		Commands: []*cli.Command{
 			&ordersCmd,
+			&productCmd,
 			&configCmd,
 			&versionCmd,
 		},

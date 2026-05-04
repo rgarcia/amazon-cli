@@ -82,6 +82,27 @@ func TestGetOrderBuildsOrderDetailURL(t *testing.T) {
 	assert.Equal(t, "USB-C Cable", order.Items[0].Title)
 }
 
+func TestSearchProductsBuildsBareSearchURL(t *testing.T) {
+	ft := &fakeTransport{body: sampleProductSearchHTML}
+	client := newClientWithBrowserID(Options{AmazonBaseURL: "https://www.amazon.com"}, ft, "brw_123")
+
+	page, err := client.SearchProducts(context.Background(), SearchProductsOptions{Query: "distilled water"})
+	require.NoError(t, err)
+	assert.Equal(t, "https://www.amazon.com/s?k=distilled+water", ft.url)
+	require.Len(t, page.Products, 2)
+	assert.Equal(t, "B000ORG123", page.Products[0].ASIN)
+}
+
+func TestGetProductBuildsProductURL(t *testing.T) {
+	ft := &fakeTransport{body: sampleProductDetailHTML}
+	client := newClientWithBrowserID(Options{AmazonBaseURL: "https://www.amazon.com"}, ft, "brw_123")
+
+	product, err := client.GetProduct(context.Background(), "B087Z5WDJ2")
+	require.NoError(t, err)
+	assert.Equal(t, "https://www.amazon.com/dp/B087Z5WDJ2", ft.url)
+	assert.Equal(t, "Logitech M510 Wireless Mouse", product.Title)
+}
+
 func TestBrowserNewParamsUsesProfileName(t *testing.T) {
 	params := newBrowserNewParams(Options{
 		KernelProfileName: "amazon",

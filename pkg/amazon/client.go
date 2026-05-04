@@ -143,6 +143,60 @@ func (c *Client) GetOrder(ctx context.Context, orderID string) (*OrderDetail, er
 	return detail, nil
 }
 
+func (c *Client) SearchProducts(ctx context.Context, opts SearchProductsOptions) (*ProductSearchPage, error) {
+	normalizeSearchProductsOptions(&opts)
+	if opts.Query == "" {
+		return nil, fmt.Errorf("product search query required")
+	}
+	u := c.productSearchURL(opts)
+	body, err := c.get(ctx, u)
+	if err != nil {
+		return nil, err
+	}
+	page, err := ParseProductSearchPage(body, u, opts)
+	if err != nil {
+		return nil, err
+	}
+	if len(page.Products) == 0 && needsRenderedDOM(body) {
+		rendered, err := c.renderHTML(ctx, u)
+		if err != nil {
+			return nil, err
+		}
+		page, err = ParseProductSearchPage(rendered, u, opts)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return page, nil
+}
+
+func (c *Client) GetProduct(ctx context.Context, asin string) (*ProductDetail, error) {
+	asin = strings.TrimSpace(asin)
+	if asin == "" {
+		return nil, fmt.Errorf("product ID required")
+	}
+	u := c.productURL(asin)
+	body, err := c.get(ctx, u)
+	if err != nil {
+		return nil, err
+	}
+	detail, err := ParseProductDetail(body, u, asin)
+	if err != nil {
+		return nil, err
+	}
+	if detail.Title == "" && needsRenderedDOM(body) {
+		rendered, err := c.renderHTML(ctx, u)
+		if err != nil {
+			return nil, err
+		}
+		detail, err = ParseProductDetail(rendered, u, asin)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return detail, nil
+}
+
 func (c *Client) get(ctx context.Context, targetURL string) (string, error) {
 	if c.opts.Debug {
 		fmt.Fprintf(os.Stderr, "GET %s via browser %s\n", targetURL, c.browserID)
@@ -238,6 +292,21 @@ func (c *Client) orderURL(orderID string) string {
 	return base + "/gp/your-account/order-details?" + v.Encode()
 }
 
+func (c *Client) productSearchURL(opts SearchProductsOptions) string {
+	base := strings.TrimRight(c.opts.AmazonBaseURL, "/")
+	v := url.Values{}
+	v.Set("k", opts.Query)
+	if opts.Page > 1 {
+		v.Set("page", fmt.Sprintf("%d", opts.Page))
+	}
+	return base + "/s?" + v.Encode()
+}
+
+func (c *Client) productURL(asin string) string {
+	base := strings.TrimRight(c.opts.AmazonBaseURL, "/")
+	return base + "/dp/" + url.PathEscape(strings.TrimSpace(asin))
+}
+
 func normalizeListOptions(opts *ListOrdersOptions) {
 	if opts.PageSize <= 0 {
 		opts.PageSize = 10
@@ -252,6 +321,13 @@ func normalizeListOptions(opts *ListOrdersOptions) {
 	}
 	if opts.TimeFilter == "" {
 		opts.TimeFilter = "year-2026"
+	}
+}
+
+func normalizeSearchProductsOptions(opts *SearchProductsOptions) {
+	opts.Query = strings.TrimSpace(opts.Query)
+	if opts.Page <= 0 {
+		opts.Page = 1
 	}
 }
 

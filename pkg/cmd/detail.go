@@ -19,6 +19,7 @@ var knownKeyAbbreviations = map[string]string{
 	"url":  "URL",
 	"api":  "API",
 	"html": "HTML",
+	"asin": "ASIN",
 }
 
 func ShowDetail(w io.Writer, data gjson.Result) {

@@ -28,6 +28,43 @@ const sampleOrderDetailHTML = `
   <div class="shipping-address">Address Seattle, WA</div>
 </body></html>`
 
+const sampleProductSearchHTML = `
+<html><body>
+  <div data-component-type="s-search-result" data-asin="B000ORG123">
+    <h2><span>Organic Result</span></h2>
+    <span class="a-price"><span class="a-offscreen">$12.34</span></span>
+    <span class="a-icon-alt">4.7 out of 5 stars</span>
+    <a aria-label="4.7 out of 5 stars, rating details"></a>
+    <span aria-label="1,234 ratings"></span>
+  </div>
+  <div data-component-type="s-search-result" data-asin="B000SPN456" class="puis-sponsored-label-text">
+    <span>Sponsored</span>
+    <h2><span>Sponsored Result</span></h2>
+    <span class="a-price"><span class="a-offscreen">$24.68</span></span>
+    <span class="a-icon-alt">4.2 out of 5 stars</span>
+    <a aria-label="42 ratings"></a>
+  </div>
+</body></html>`
+
+const sampleProductDetailHTML = `
+<html><body>
+  <span id="productTitle">Logitech M510 Wireless Mouse</span>
+  <div id="corePriceDisplay_desktop_feature_div"><span class="a-price"><span class="a-offscreen">$27.99</span></span></div>
+  <div id="averageCustomerReviews"><span class="a-icon-alt">4.6 out of 5 stars</span></div>
+  <span id="acrCustomerReviewText">(34,832 ratings)</span>
+  <div id="availability">
+    <script>window.bad = "not availability"; var authPortalLink = "/ap/signin";</script>
+    <span>In Stock</span>
+  </div>
+  <div id="merchant-info">Sold by Amazon.com</div>
+  <div id="feature-bullets">
+    <ul>
+      <li><span class="a-list-item">Contoured shape with soft rubber grips</span></li>
+      <li><span class="a-list-item">Make sure this fits by entering your model number.</span></li>
+    </ul>
+  </div>
+</body></html>`
+
 func TestParseOrdersPage(t *testing.T) {
 	page, err := ParseOrdersPage(sampleOrdersHTML, "https://www.amazon.com/gp/your-account/order-history?orderFilter=year-2026&startIndex=0", ListOrdersOptions{
 		Page:       1,
@@ -107,4 +144,40 @@ func TestParseOrderDetailUsesBoundedSummaryFields(t *testing.T) {
 	require.Len(t, order.Items, 1)
 	assert.Equal(t, "Superer 5V Fast Charger", order.Items[0].Title)
 	assert.Empty(t, order.Addresses)
+}
+
+func TestParseProductSearchPage(t *testing.T) {
+	page, err := ParseProductSearchPage(sampleProductSearchHTML, "https://www.amazon.com/s?k=wireless+mouse", SearchProductsOptions{
+		Query: "wireless mouse",
+		Page:  1,
+	})
+	require.NoError(t, err)
+	require.Len(t, page.Products, 2)
+
+	assert.Equal(t, "wireless mouse", page.Query)
+	assert.Equal(t, "B000ORG123", page.Products[0].ASIN)
+	assert.Equal(t, "Organic Result", page.Products[0].Title)
+	assert.Equal(t, "$12.34", page.Products[0].Price)
+	assert.Equal(t, "4.7 out of 5 stars", page.Products[0].Rating)
+	assert.Equal(t, "1,234", page.Products[0].Reviews)
+	assert.False(t, page.Products[0].Sponsored)
+	assert.Equal(t, "https://www.amazon.com/dp/B000ORG123", page.Products[0].URL)
+
+	assert.Equal(t, "B000SPN456", page.Products[1].ASIN)
+	assert.True(t, page.Products[1].Sponsored)
+}
+
+func TestParseProductDetail(t *testing.T) {
+	product, err := ParseProductDetail(sampleProductDetailHTML, "https://www.amazon.com/dp/B087Z5WDJ2", "B087Z5WDJ2")
+	require.NoError(t, err)
+
+	assert.Equal(t, "B087Z5WDJ2", product.ASIN)
+	assert.Equal(t, "Logitech M510 Wireless Mouse", product.Title)
+	assert.Equal(t, "$27.99", product.Price)
+	assert.Equal(t, "4.6 out of 5 stars", product.Rating)
+	assert.Equal(t, "34,832", product.Reviews)
+	assert.Equal(t, "In Stock", product.Availability)
+	assert.NotContains(t, product.Availability, "window.bad")
+	assert.Equal(t, "Sold by Amazon.com", product.Merchant)
+	assert.Equal(t, []string{"Contoured shape with soft rubber grips"}, product.Bullets)
 }

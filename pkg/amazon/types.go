@@ -20,6 +20,11 @@ type ListOrdersOptions struct {
 	TimeFilter string `json:"time_filter"`
 }
 
+type SearchProductsOptions struct {
+	Query string `json:"query"`
+	Page  int    `json:"page"`
+}
+
 type OrdersPage struct {
 	Orders         []Order `json:"orders"`
 	Page           int     `json:"page"`
@@ -51,6 +56,35 @@ type OrderDetail struct {
 	Payments  []string `json:"payments,omitempty"`
 	Addresses []string `json:"addresses,omitempty"`
 	URL       string   `json:"url"`
+}
+
+type ProductSearchPage struct {
+	Query    string                `json:"query"`
+	Page     int                   `json:"page"`
+	Products []ProductSearchResult `json:"products"`
+	URL      string                `json:"url"`
+}
+
+type ProductSearchResult struct {
+	ASIN      string `json:"asin"`
+	Title     string `json:"title,omitempty"`
+	Price     string `json:"price,omitempty"`
+	Rating    string `json:"rating,omitempty"`
+	Reviews   string `json:"reviews,omitempty"`
+	Sponsored bool   `json:"sponsored"`
+	URL       string `json:"url,omitempty"`
+}
+
+type ProductDetail struct {
+	ASIN         string   `json:"asin"`
+	Title        string   `json:"title,omitempty"`
+	Price        string   `json:"price,omitempty"`
+	Rating       string   `json:"rating,omitempty"`
+	Reviews      string   `json:"reviews,omitempty"`
+	Availability string   `json:"availability,omitempty"`
+	Merchant     string   `json:"merchant,omitempty"`
+	Bullets      []string `json:"bullets,omitempty"`
+	URL          string   `json:"url"`
 }
 
 type HTTPError struct {

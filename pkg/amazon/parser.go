@@ -14,6 +14,7 @@ import (
 var (
 	spaceRe        = regexp.MustCompile(`\s+`)
 	orderIDRe      = regexp.MustCompile(`\b\d{3}-\d{7}-\d{7}\b`)
+	productASINRe  = regexp.MustCompile(`(?i)(?:/dp/|/gp/product/)([a-z0-9]{10})|\b([a-z0-9]{10})\b`)
 	startIndexRe   = regexp.MustCompile(`[?&]startIndex=(\d+)`)
 	moneyRe        = regexp.MustCompile(`\$[0-9][0-9,]*(?:\.[0-9]{2})?`)
 	grandTotalRe   = regexp.MustCompile(`(?i)\bgrand total:\s*(\$[0-9][0-9,]*(?:\.[0-9]{2})?)`)
@@ -92,6 +93,64 @@ func ParseOrderDetail(html, pageURL, orderID string) (*OrderDetail, error) {
 	return detail, nil
 }
 
+func ParseProductSearchPage(html, pageURL string, opts SearchProductsOptions) (*ProductSearchPage, error) {
+	if looksLikeSignIn(html) {
+		return nil, fmt.Errorf("Amazon sign-in page returned; refresh the Kernel profile login before retrying")
+	}
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return nil, err
+	}
+	normalizeSearchProductsOptions(&opts)
+
+	products := make([]ProductSearchResult, 0)
+	seen := make(map[string]bool)
+	doc.Find(`div[data-component-type="s-search-result"]`).Each(func(_ int, s *goquery.Selection) {
+		product := parseProductSearchResult(s, pageURL)
+		if product.ASIN == "" || product.Title == "" || seen[product.ASIN] {
+			return
+		}
+		seen[product.ASIN] = true
+		products = append(products, product)
+	})
+
+	return &ProductSearchPage{
+		Query:    opts.Query,
+		Page:     opts.Page,
+		Products: products,
+		URL:      pageURL,
+	}, nil
+}
+
+func ParseProductDetail(html, pageURL, asin string) (*ProductDetail, error) {
+	if looksLikeSignIn(html) {
+		return nil, fmt.Errorf("Amazon sign-in page returned; refresh the Kernel profile login before retrying")
+	}
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return nil, err
+	}
+	asin = firstNonEmpty(strings.ToUpper(strings.TrimSpace(asin)), productASINFromString(pageURL))
+	detail := &ProductDetail{
+		ASIN:         asin,
+		Title:        firstSelectionText(doc.Selection, "#productTitle", "h1#title"),
+		Price:        firstSelectionText(doc.Selection, "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen", "#corePrice_feature_div .a-price .a-offscreen", ".priceToPay .a-offscreen", ".apexPriceToPay .a-offscreen", "#priceblock_ourprice", "#priceblock_dealprice"),
+		Rating:       firstSelectionText(doc.Selection, "#acrPopover .a-icon-alt", "#averageCustomerReviews .a-icon-alt", "[data-hook='rating-out-of-text']"),
+		Reviews:      cleanReviewText(firstSelectionText(doc.Selection, "#acrCustomerReviewText", "[data-hook='total-review-count']")),
+		Availability: firstSelectionText(doc.Selection, "#availability"),
+		Merchant:     firstSelectionText(doc.Selection, "#merchant-info", "#tabular-buybox .tabular-buybox-text"),
+		URL:          pageURL,
+	}
+	doc.Find("#feature-bullets li span.a-list-item").Each(func(_ int, s *goquery.Selection) {
+		text := selectionText(s)
+		if text != "" && !strings.Contains(strings.ToLower(text), "make sure this fits") {
+			detail.Bullets = append(detail.Bullets, text)
+		}
+	})
+	detail.Bullets = dedupeStrings(detail.Bullets)
+	return detail, nil
+}
+
 func parseOrderCard(s *goquery.Selection, pageURL string) Order {
 	text := selectionText(s)
 	id, _ := s.Attr("data-order-id")
@@ -116,6 +175,96 @@ func parseOrderCard(s *goquery.Selection, pageURL string) Order {
 		Items:       extractItems(s, pageURL),
 		DetailURL:   detailURL,
 	}
+}
+
+func parseProductSearchResult(s *goquery.Selection, pageURL string) ProductSearchResult {
+	asin, _ := s.Attr("data-asin")
+	if asin == "" {
+		s.Find("a[href*='/dp/'], a[href*='/gp/product/']").EachWithBreak(func(_ int, a *goquery.Selection) bool {
+			href, _ := a.Attr("href")
+			asin = productASINFromString(href)
+			return asin == ""
+		})
+	}
+	asin = strings.ToUpper(strings.TrimSpace(asin))
+	return ProductSearchResult{
+		ASIN:      asin,
+		Title:     productSearchTitle(s),
+		Price:     firstSelectionText(s, ".a-price .a-offscreen"),
+		Rating:    productSearchRating(s),
+		Reviews:   productSearchReviews(s),
+		Sponsored: isSponsoredProductResult(s),
+		URL:       absoluteURL(pageURL, "/dp/"+asin),
+	}
+}
+
+func productSearchTitle(s *goquery.Selection) string {
+	title := firstSelectionText(s, "h2 span", "h2")
+	if title != "" {
+		return title
+	}
+	var aria string
+	s.Find("h2[aria-label], a[aria-label]").EachWithBreak(func(_ int, el *goquery.Selection) bool {
+		aria, _ = el.Attr("aria-label")
+		return strings.TrimSpace(aria) == ""
+	})
+	return cleanText(aria)
+}
+
+func productSearchRating(s *goquery.Selection) string {
+	var rating string
+	s.Find(".a-icon-alt, [aria-label*='out of 5 stars']").EachWithBreak(func(_ int, el *goquery.Selection) bool {
+		text := firstNonEmpty(selectionText(el), attrText(el, "aria-label"))
+		if strings.Contains(strings.ToLower(text), "out of 5") {
+			rating = cleanText(text)
+			return false
+		}
+		return true
+	})
+	return rating
+}
+
+func productSearchReviews(s *goquery.Selection) string {
+	var reviews string
+	s.Find("a[aria-label], span[aria-label]").EachWithBreak(func(_ int, el *goquery.Selection) bool {
+		text := attrText(el, "aria-label")
+		if isReviewCountLabel(text) {
+			reviews = cleanReviewText(text)
+			return false
+		}
+		return true
+	})
+	if reviews != "" {
+		return reviews
+	}
+	s.Find("a[href*='customerReviews'] span, a[href*='#customerReviews'] span").EachWithBreak(func(_ int, el *goquery.Selection) bool {
+		reviews = cleanReviewText(selectionText(el))
+		return reviews == ""
+	})
+	return reviews
+}
+
+func isReviewCountLabel(text string) bool {
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "out of 5") || strings.Contains(lower, "rating details") {
+		return false
+	}
+	return strings.Contains(lower, " ratings") ||
+		strings.Contains(lower, " reviews") ||
+		strings.HasSuffix(lower, " rating") ||
+		strings.HasSuffix(lower, " review")
+}
+
+func isSponsoredProductResult(s *goquery.Selection) bool {
+	html, _ := goquery.OuterHtml(s)
+	lowerHTML := strings.ToLower(html)
+	if strings.Contains(lowerHTML, "sponsored") ||
+		strings.Contains(lowerHTML, "puis-sponsored") ||
+		strings.Contains(lowerHTML, "ad-feedback") ||
+		strings.Contains(lowerHTML, "data-ad-id") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(selectionText(s)), "sponsored")
 }
 
 func extractItems(s *goquery.Selection, pageURL string) []OrderItem {
@@ -237,6 +386,19 @@ func orderIDFromString(s string) string {
 	return orderIDRe.FindString(s)
 }
 
+func productASINFromString(s string) string {
+	m := productASINRe.FindStringSubmatch(s)
+	if len(m) == 0 {
+		return ""
+	}
+	for _, v := range m[1:] {
+		if v != "" {
+			return strings.ToUpper(v)
+		}
+	}
+	return strings.ToUpper(m[0])
+}
+
 func cleanText(s string) string {
 	return strings.TrimSpace(spaceRe.ReplaceAllString(s, " "))
 }
@@ -245,6 +407,30 @@ func selectionText(s *goquery.Selection) string {
 	clone := s.Clone()
 	clone.Find("script, style, noscript, template, svg").Remove()
 	return cleanText(clone.Text())
+}
+
+func firstSelectionText(s *goquery.Selection, selectors ...string) string {
+	for _, selector := range selectors {
+		var out string
+		s.Find(selector).EachWithBreak(func(_ int, el *goquery.Selection) bool {
+			out = selectionText(el)
+			return out == ""
+		})
+		if out != "" {
+			return out
+		}
+	}
+	return ""
+}
+
+func attrText(s *goquery.Selection, name string) string {
+	value, _ := s.Attr(name)
+	return cleanText(value)
+}
+
+func cleanReviewText(s string) string {
+	s = cleanText(strings.Trim(s, "()"))
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(s, "ratings"), "rating"))
 }
 
 func isActionText(s string) bool {
@@ -265,10 +451,9 @@ func isFooterProductLink(href string) bool {
 
 func looksLikeSignIn(html string) bool {
 	lower := strings.ToLower(html)
-	return strings.Contains(lower, "ap_password") ||
+	return strings.Contains(lower, `id="ap_password"`) ||
 		strings.Contains(lower, `name="password"`) ||
-		strings.Contains(lower, "authportal") ||
-		(strings.Contains(lower, "sign in") && strings.Contains(lower, "enter your password"))
+		strings.Contains(lower, `name='password'`)
 }
 
 func absoluteURL(baseURL, href string) string {
