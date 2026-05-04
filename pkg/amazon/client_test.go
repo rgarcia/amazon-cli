@@ -15,6 +15,7 @@ import (
 
 type fakeTransport struct {
 	body        string
+	curlBodies  []string
 	url         string
 	browserID   string
 	createID    string
@@ -39,7 +40,12 @@ func (f *fakeTransport) Curl(_ context.Context, browserID string, req CurlReques
 		f.curlErrors = f.curlErrors[1:]
 		return nil, err
 	}
-	return &CurlResponse{Status: 200, Body: f.body}, nil
+	body := f.body
+	if len(f.curlBodies) > 0 {
+		body = f.curlBodies[0]
+		f.curlBodies = f.curlBodies[1:]
+	}
+	return &CurlResponse{Status: 200, Body: body}, nil
 }
 
 func (f *fakeTransport) RenderHTML(_ context.Context, _ string, _ string, _ int) (string, error) {
@@ -223,6 +229,33 @@ func TestClientRecreatesCachedBrowserOnDeletedSession(t *testing.T) {
 		},
 	}
 	client := newClientWithBrowserID(opts, ft, "brw_deleted")
+
+	page, err := client.ListOrders(context.Background(), ListOrdersOptions{TimeFilter: "year-2026"})
+	require.NoError(t, err)
+	assert.Equal(t, "brw_replacement", ft.browserID)
+	assert.Equal(t, 1, len(page.Orders))
+
+	cached, ok := readCachedBrowserID(opts)
+	require.True(t, ok)
+	assert.Equal(t, "brw_replacement", cached)
+}
+
+func TestClientRecreatesCachedBrowserOnAmazonSignInPage(t *testing.T) {
+	cachePath := t.TempDir() + "/browsers.json"
+	opts := Options{
+		AmazonBaseURL:     "https://www.amazon.com",
+		KernelProfileName: "amazon",
+		BrowserTimeout:    600,
+		BrowserCachePath:  cachePath,
+		BrowserCacheKey:   "personal",
+	}
+
+	ft := &fakeTransport{
+		body:       sampleOrdersHTML,
+		createID:   "brw_replacement",
+		curlBodies: []string{`<html><body><form><input id="ap_password" name="password"></form></body></html>`, sampleOrdersHTML},
+	}
+	client := newClientWithBrowserID(opts, ft, "brw_signed_out")
 
 	page, err := client.ListOrders(context.Background(), ListOrdersOptions{TimeFilter: "year-2026"})
 	require.NoError(t, err)

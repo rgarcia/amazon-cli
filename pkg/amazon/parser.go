@@ -1,7 +1,6 @@
 package amazon
 
 import (
-	"fmt"
 	"net/url"
 	"regexp"
 	"sort"
@@ -24,7 +23,7 @@ var (
 
 func ParseOrdersPage(html, pageURL string, opts ListOrdersOptions) (*OrdersPage, error) {
 	if looksLikeSignIn(html) {
-		return nil, fmt.Errorf("Amazon sign-in page returned; refresh the Kernel profile login before retrying")
+		return nil, signInPageError(false)
 	}
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
@@ -69,7 +68,7 @@ func ParseOrdersPage(html, pageURL string, opts ListOrdersOptions) (*OrdersPage,
 
 func ParseOrderDetail(html, pageURL, orderID string) (*OrderDetail, error) {
 	if looksLikeSignIn(html) {
-		return nil, fmt.Errorf("Amazon sign-in page returned; refresh the Kernel profile login before retrying")
+		return nil, signInPageError(false)
 	}
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
@@ -95,7 +94,7 @@ func ParseOrderDetail(html, pageURL, orderID string) (*OrderDetail, error) {
 
 func ParseProductSearchPage(html, pageURL string, opts SearchProductsOptions) (*ProductSearchPage, error) {
 	if looksLikeSignIn(html) {
-		return nil, fmt.Errorf("Amazon sign-in page returned; refresh the Kernel profile login before retrying")
+		return nil, signInPageError(false)
 	}
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
@@ -124,7 +123,7 @@ func ParseProductSearchPage(html, pageURL string, opts SearchProductsOptions) (*
 
 func ParseProductDetail(html, pageURL, asin string) (*ProductDetail, error) {
 	if looksLikeSignIn(html) {
-		return nil, fmt.Errorf("Amazon sign-in page returned; refresh the Kernel profile login before retrying")
+		return nil, signInPageError(false)
 	}
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
