@@ -6,7 +6,6 @@ type Options struct {
 	KernelProfileID   string
 	KernelProfileName string
 	AmazonBaseURL     string
-	BrowserID         string
 	BrowserTimeout    int
 	BrowserCachePath  string
 	BrowserCacheKey   string

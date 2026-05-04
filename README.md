@@ -81,6 +81,8 @@ The config file is stored at:
 ~/.config/amzn/config.yaml
 ```
 
+CLI configuration is read from this file and command-line flags only.
+
 Browser session state is cached under the standard local state directory:
 
 ```text
@@ -124,15 +126,9 @@ Use a GJSON transform:
 amzn --output raw --transform 'orders.#' orders list --time-filter year-2026
 ```
 
-Reuse an existing browser session:
-
-```sh
-amzn --browser-id <browser-session-id> orders list --time-filter year-2026
-```
-
-Without `--browser-id`, `amzn` reuses the cached browser for the active config
-profile. If Kernel reports that browser as missing, the CLI creates a new
-profile-backed browser and updates the cache.
+`amzn` reuses the cached browser for the active config profile. If Kernel
+reports that browser as missing, the CLI creates a new profile-backed browser
+and updates the cache.
 
 ## Development
 

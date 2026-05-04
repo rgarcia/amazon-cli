@@ -122,9 +122,8 @@ func newAmazonClient(ctx context.Context, cmd *cli.Command) (*amazon.Client, fun
 	}
 	cfg := resolveProfileConfig(cmd)
 	profile := resolveProfile(cmd)
-	browserID := cmd.Root().String("browser-id")
-	if browserID == "" && cfg.KernelProfileID == "" && cfg.KernelProfileName == "" {
-		return nil, func() {}, fmt.Errorf("no Kernel browser profile configured. Run 'amzn config init', set kernel_profile_id/kernel_profile_name, or pass --browser-id")
+	if cfg.KernelProfileID == "" && cfg.KernelProfileName == "" {
+		return nil, func() {}, fmt.Errorf("no Kernel browser profile configured. Run 'amzn config init' and set kernel_profile_id or kernel_profile_name")
 	}
 	opts := amazon.Options{
 		KernelAPIKey:      apiKey,
@@ -132,7 +131,6 @@ func newAmazonClient(ctx context.Context, cmd *cli.Command) (*amazon.Client, fun
 		KernelProfileID:   cfg.KernelProfileID,
 		KernelProfileName: cfg.KernelProfileName,
 		AmazonBaseURL:     cfg.AmazonBaseURL,
-		BrowserID:         browserID,
 		BrowserTimeout:    cmd.Root().Int("browser-timeout"),
 		BrowserCachePath:  getBrowserCachePath(),
 		BrowserCacheKey:   profile,

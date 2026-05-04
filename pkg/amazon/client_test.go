@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/kernel/kernel-go-sdk"
@@ -50,7 +52,7 @@ func (f *fakeTransport) DeleteBrowser(_ context.Context, _ string) error {
 
 func TestListOrdersBuildsAmazonOrderHistoryURL(t *testing.T) {
 	ft := &fakeTransport{body: sampleOrdersHTML}
-	client := NewClientWithTransport(Options{AmazonBaseURL: "https://www.amazon.com"}, ft, "brw_123")
+	client := newClientWithBrowserID(Options{AmazonBaseURL: "https://www.amazon.com"}, ft, "brw_123")
 
 	page, err := client.ListOrders(context.Background(), ListOrdersOptions{
 		Page:       2,
@@ -69,7 +71,7 @@ func TestListOrdersBuildsAmazonOrderHistoryURL(t *testing.T) {
 
 func TestGetOrderBuildsOrderDetailURL(t *testing.T) {
 	ft := &fakeTransport{body: sampleOrderDetailHTML}
-	client := NewClientWithTransport(Options{AmazonBaseURL: "https://www.amazon.com"}, ft, "brw_123")
+	client := newClientWithBrowserID(Options{AmazonBaseURL: "https://www.amazon.com"}, ft, "brw_123")
 
 	order, err := client.GetOrder(context.Background(), "111-2222222-3333333")
 	require.NoError(t, err)
@@ -100,6 +102,29 @@ func TestBrowserNewParamsPrefersProfileID(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"profile":{"id":"profile_123"},"timeout_seconds":600}`, string(b))
 	assert.NotContains(t, string(b), `"name"`)
+}
+
+func TestKernelTransportDoesNotReadSDKEnvBaseURL(t *testing.T) {
+	t.Setenv("KERNEL_BASE_URL", "://bad-env-url")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/browsers", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"session_id":"brw_test"}`)
+	}))
+	defer server.Close()
+
+	assert.Equal(t, "https://api.onkernel.com/", kernelBaseURL(""))
+	assert.Equal(t, "https://config.example/", kernelBaseURL("https://config.example"))
+
+	transport, err := NewKernelTransport(Options{
+		KernelAPIKey:  "config-key",
+		KernelBaseURL: server.URL,
+	})
+	require.NoError(t, err)
+
+	id, err := transport.CreateBrowser(context.Background(), Options{BrowserTimeout: 600})
+	require.NoError(t, err)
+	assert.Equal(t, "brw_test", id)
 }
 
 func TestClientUsesCachedBrowserWithoutProbe(t *testing.T) {
@@ -139,8 +164,7 @@ func TestClientRecreatesCachedBrowserOnKernelNotFound(t *testing.T) {
 		createID:   "brw_replacement",
 		curlErrors: []error{&kernel.Error{StatusCode: 404}},
 	}
-	client := NewClientWithTransport(opts, ft, "brw_stale")
-	client.refreshOnMissing = true
+	client := newClientWithBrowserID(opts, ft, "brw_stale")
 
 	page, err := client.ListOrders(context.Background(), ListOrdersOptions{TimeFilter: "year-2026"})
 	require.NoError(t, err)

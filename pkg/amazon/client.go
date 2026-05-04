@@ -55,8 +55,7 @@ func newClient(ctx context.Context, opts Options, transport BrowserTransport) (*
 	client := &Client{
 		opts:             opts,
 		transport:        transport,
-		browserID:        opts.BrowserID,
-		refreshOnMissing: opts.BrowserID == "",
+		refreshOnMissing: true,
 	}
 	if client.browserID == "" {
 		if id, ok := readCachedBrowserID(opts); ok {
@@ -71,9 +70,9 @@ func newClient(ctx context.Context, opts Options, transport BrowserTransport) (*
 	return client, nil
 }
 
-func NewClientWithTransport(opts Options, transport BrowserTransport, browserID string) *Client {
+func newClientWithBrowserID(opts Options, transport BrowserTransport, browserID string) *Client {
 	opts = normalizeOptions(opts)
-	return &Client{opts: opts, transport: transport, browserID: browserID, refreshOnMissing: browserID == ""}
+	return &Client{opts: opts, transport: transport, browserID: browserID, refreshOnMissing: true}
 }
 
 func normalizeOptions(opts Options) Options {
@@ -268,11 +267,24 @@ func NewKernelTransport(opts Options) (*KernelTransport, error) {
 	if opts.KernelAPIKey == "" {
 		return nil, fmt.Errorf("Kernel API key is required")
 	}
-	clientOpts := []option.RequestOption{option.WithAPIKey(opts.KernelAPIKey)}
-	if opts.KernelBaseURL != "" {
-		clientOpts = append(clientOpts, option.WithBaseURL(strings.TrimRight(opts.KernelBaseURL, "/")+"/"))
+	clientOpts := []option.RequestOption{
+		option.WithHTTPClient(http.DefaultClient),
+		option.WithBaseURL(kernelBaseURL(opts.KernelBaseURL)),
+		option.WithAPIKey(opts.KernelAPIKey),
 	}
-	return &KernelTransport{client: kernel.NewClient(clientOpts...)}, nil
+	return &KernelTransport{
+		client: kernel.Client{
+			Options:  clientOpts,
+			Browsers: kernel.NewBrowserService(clientOpts...),
+		},
+	}, nil
+}
+
+func kernelBaseURL(baseURL string) string {
+	if baseURL == "" {
+		return "https://api.onkernel.com/"
+	}
+	return strings.TrimRight(baseURL, "/") + "/"
 }
 
 func (t *KernelTransport) CreateBrowser(ctx context.Context, opts Options) (string, error) {

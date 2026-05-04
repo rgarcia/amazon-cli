@@ -26,10 +26,6 @@ func init() {
 				Aliases: []string{"p"},
 				Usage:   "Config profile to use",
 			},
-			&cli.StringFlag{
-				Name:  "browser-id",
-				Usage: "Existing Kernel browser session ID to reuse",
-			},
 			&cli.IntFlag{
 				Name:  "browser-timeout",
 				Usage: "Kernel browser inactivity timeout in seconds",
