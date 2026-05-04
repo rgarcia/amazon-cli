@@ -96,12 +96,12 @@ func resolveKernelAPIKey(cmd *cli.Command) (string, error) {
 	if k := os.Getenv("AMZN_KERNEL_API_KEY"); k != "" {
 		return k, nil
 	}
-	if k := os.Getenv("KERNEL_API_KEY"); k != "" {
-		return k, nil
-	}
 	cfg := resolveProfileConfig(cmd)
 	if cfg.KernelAPIKey != "" {
 		return cfg.KernelAPIKey, nil
+	}
+	if k := os.Getenv("KERNEL_API_KEY"); k != "" {
+		return k, nil
 	}
 	return "", fmt.Errorf("no Kernel API key found. Set KERNEL_API_KEY, AMZN_KERNEL_API_KEY, or run 'amzn config init'")
 }
