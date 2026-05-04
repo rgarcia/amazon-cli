@@ -221,8 +221,8 @@ func (c *Client) get(ctx context.Context, targetURL string) (string, error) {
 
 func (c *Client) curl(ctx context.Context, req CurlRequest) (*CurlResponse, error) {
 	resp, err := c.transport.Curl(ctx, c.browserID, req)
-	if isMissingBrowserError(err) && c.refreshOnMissing {
-		if refreshErr := c.replaceMissingBrowser(ctx); refreshErr != nil {
+	if isUnavailableBrowserError(err) && c.refreshOnMissing {
+		if refreshErr := c.replaceUnavailableBrowser(ctx); refreshErr != nil {
 			return nil, refreshErr
 		}
 		return c.transport.Curl(ctx, c.browserID, req)
@@ -232,8 +232,8 @@ func (c *Client) curl(ctx context.Context, req CurlRequest) (*CurlResponse, erro
 
 func (c *Client) renderHTML(ctx context.Context, targetURL string) (string, error) {
 	html, err := c.transport.RenderHTML(ctx, c.browserID, targetURL, c.opts.RequestTimeout)
-	if isMissingBrowserError(err) && c.refreshOnMissing {
-		if refreshErr := c.replaceMissingBrowser(ctx); refreshErr != nil {
+	if isUnavailableBrowserError(err) && c.refreshOnMissing {
+		if refreshErr := c.replaceUnavailableBrowser(ctx); refreshErr != nil {
 			return "", refreshErr
 		}
 		return c.transport.RenderHTML(ctx, c.browserID, targetURL, c.opts.RequestTimeout)
@@ -241,13 +241,13 @@ func (c *Client) renderHTML(ctx context.Context, targetURL string) (string, erro
 	return html, err
 }
 
-func (c *Client) replaceMissingBrowser(ctx context.Context) error {
+func (c *Client) replaceUnavailableBrowser(ctx context.Context) error {
 	oldID := c.browserID
 	if c.opts.Debug {
-		fmt.Fprintf(os.Stderr, "Kernel browser %s not found; creating replacement\n", oldID)
+		fmt.Fprintf(os.Stderr, "Kernel browser %s unavailable; creating replacement\n", oldID)
 	}
 	if err := c.createBrowser(ctx); err != nil {
-		return fmt.Errorf("Kernel browser %s not found and creating replacement failed: %w", oldID, err)
+		return fmt.Errorf("Kernel browser %s unavailable and creating replacement failed: %w", oldID, err)
 	}
 	return nil
 }
@@ -267,12 +267,28 @@ func (c *Client) createBrowser(ctx context.Context) error {
 	return nil
 }
 
-func isMissingBrowserError(err error) bool {
+func isUnavailableBrowserError(err error) bool {
 	if err == nil {
 		return false
 	}
 	var apierr *kernel.Error
-	return errors.As(err, &apierr) && apierr.StatusCode == http.StatusNotFound
+	if !errors.As(err, &apierr) {
+		return false
+	}
+	if apierr.StatusCode == http.StatusNotFound {
+		return true
+	}
+	return apierr.StatusCode == http.StatusBadRequest && kernelErrorMessage(apierr) == "session has already been deleted"
+}
+
+func kernelErrorMessage(apierr *kernel.Error) string {
+	var body struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(apierr.RawJSON()), &body); err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(body.Message))
 }
 
 func (c *Client) ordersURL(timeFilter string, startIndex int) string {

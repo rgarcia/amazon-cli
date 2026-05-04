@@ -1,21 +1,23 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+BINARY ?= amzn
 
 .PHONY: build install uninstall test vet lint clean
 
-build:
-	go build -ldflags "-X github.com/rgarcia/amazon-cli/pkg/cmd.Version=$(VERSION)" -o amzn ./cmd/amzn
+build: $(BINARY)
 
-install: amzn
-	install -d $(DESTDIR)$(PREFIX)/bin
-	install -m 755 amzn $(DESTDIR)$(PREFIX)/bin/amzn
+install:
+	test -x $(BINARY) || { echo "missing $(BINARY); run make build first"; exit 1; }
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(BINARY) $(DESTDIR)$(BINDIR)/$(BINARY)
 
-amzn: $(shell find . -name '*.go' -not -path './vendor/*')
-	go build -ldflags "-X github.com/rgarcia/amazon-cli/pkg/cmd.Version=$(VERSION)" -o amzn ./cmd/amzn
+$(BINARY): $(shell find . -name '*.go' -not -path './vendor/*')
+	go build -ldflags "-X github.com/rgarcia/amazon-cli/pkg/cmd.Version=$(VERSION)" -o $(BINARY) ./cmd/amzn
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/amzn
+	rm -f $(DESTDIR)$(BINDIR)/$(BINARY)
 
 test:
 	go test ./... -v
@@ -27,4 +29,4 @@ lint:
 	golangci-lint run ./...
 
 clean:
-	rm -f amzn
+	rm -f $(BINARY)

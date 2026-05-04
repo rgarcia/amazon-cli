@@ -50,6 +50,14 @@ func (f *fakeTransport) DeleteBrowser(_ context.Context, _ string) error {
 	return nil
 }
 
+func kernelAPIError(t *testing.T, statusCode int, body string) *kernel.Error {
+	t.Helper()
+	err := &kernel.Error{StatusCode: statusCode}
+	require.NoError(t, json.Unmarshal([]byte(body), err))
+	err.StatusCode = statusCode
+	return err
+}
+
 func TestListOrdersBuildsAmazonOrderHistoryURL(t *testing.T) {
 	ft := &fakeTransport{body: sampleOrdersHTML}
 	client := newClientWithBrowserID(Options{AmazonBaseURL: "https://www.amazon.com"}, ft, "brw_123")
@@ -186,6 +194,35 @@ func TestClientRecreatesCachedBrowserOnKernelNotFound(t *testing.T) {
 		curlErrors: []error{&kernel.Error{StatusCode: 404}},
 	}
 	client := newClientWithBrowserID(opts, ft, "brw_stale")
+
+	page, err := client.ListOrders(context.Background(), ListOrdersOptions{TimeFilter: "year-2026"})
+	require.NoError(t, err)
+	assert.Equal(t, "brw_replacement", ft.browserID)
+	assert.Equal(t, 1, len(page.Orders))
+
+	cached, ok := readCachedBrowserID(opts)
+	require.True(t, ok)
+	assert.Equal(t, "brw_replacement", cached)
+}
+
+func TestClientRecreatesCachedBrowserOnDeletedSession(t *testing.T) {
+	cachePath := t.TempDir() + "/browsers.json"
+	opts := Options{
+		AmazonBaseURL:     "https://www.amazon.com",
+		KernelProfileName: "amazon",
+		BrowserTimeout:    600,
+		BrowserCachePath:  cachePath,
+		BrowserCacheKey:   "personal",
+	}
+
+	ft := &fakeTransport{
+		body:     sampleOrdersHTML,
+		createID: "brw_replacement",
+		curlErrors: []error{
+			kernelAPIError(t, http.StatusBadRequest, `{"code":"invalid_request","message":"session has already been deleted"}`),
+		},
+	}
+	client := newClientWithBrowserID(opts, ft, "brw_deleted")
 
 	page, err := client.ListOrders(context.Background(), ListOrdersOptions{TimeFilter: "year-2026"})
 	require.NoError(t, err)

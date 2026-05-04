@@ -30,7 +30,10 @@ Or build from a local checkout:
 git clone https://github.com/rgarcia/amazon-cli.git
 cd amazon-cli
 make build
+sudo make install
 ```
+
+This installs the `amzn` binary to `/usr/local/bin/amzn`.
 
 ## Kernel Setup
 
@@ -142,8 +145,8 @@ amzn --output raw --transform 'orders.#' orders list --time-filter year-2026
 ```
 
 `amzn` reuses the cached browser for the active config profile. If Kernel
-reports that browser as missing, the CLI creates a new profile-backed browser
-and updates the cache.
+reports that browser as missing or already deleted, the CLI creates a new
+profile-backed browser and updates the cache.
 
 ## Development
 
