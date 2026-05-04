@@ -2,11 +2,9 @@
 
 `amazon-cli` provides `amzn`, a small command-line interface for Amazon.com
 order history. It uses [Kernel](https://www.kernel.sh/) cloud browsers and
-Browser Curl so requests run through Chromium's network stack and inherit the
-cookies from an authenticated browser profile.
-
-This is not an official Amazon API client. It is a pragmatic CLI built on the
-same Amazon.com pages a signed-in browser uses.
+their [`browser curl`](https://www.kernel.sh/docs/browsers/curl) feature to
+route requests through Chromium's network stack and inherit the cookies from an
+authenticated browser profile.
 
 ## Features
 
