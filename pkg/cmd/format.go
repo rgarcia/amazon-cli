@@ -29,7 +29,7 @@ func shouldUseColors(w io.Writer) bool {
 	return isTerminal(w)
 }
 
-func ShowJSON(out *os.File, raw string, format string, transform string) error {
+func ShowJSON(out io.Writer, raw string, format string, transform string) error {
 	res := gjson.Parse(raw)
 	if transform != "" {
 		if transformed := res.Get(transform); transformed.Exists() {
@@ -37,7 +37,10 @@ func ShowJSON(out *os.File, raw string, format string, transform string) error {
 		}
 	}
 	switch strings.ToLower(format) {
-	case "auto", "json":
+	case "auto":
+		ShowDetail(out, res)
+		return nil
+	case "json":
 		prettyJSON := pretty.Pretty([]byte(res.Raw))
 		if shouldUseColors(out) {
 			_, err := out.Write(pretty.Color(prettyJSON, pretty.TerminalStyle))
@@ -64,7 +67,7 @@ func ShowJSON(out *os.File, raw string, format string, transform string) error {
 	}
 }
 
-func ShowAny(out *os.File, data any, format string, transform string) error {
+func ShowAny(out io.Writer, data any, format string, transform string) error {
 	b, err := json.Marshal(data)
 	if err != nil {
 		return err

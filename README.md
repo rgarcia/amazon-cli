@@ -118,10 +118,13 @@ Get a single order:
 amzn orders get 111-1111111-1111111
 ```
 
+By default, single-order details are shown in a human-readable detail view.
+
 Use structured output:
 
 ```sh
 amzn --output json orders list --time-filter year-2026
+amzn --output json orders get 111-1111111-1111111
 amzn --output yaml orders get 111-1111111-1111111
 ```
 
