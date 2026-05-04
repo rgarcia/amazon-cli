@@ -137,13 +137,6 @@ Reuse an existing browser session:
 amzn --browser-id <browser-session-id> orders list --time-filter year-2026
 ```
 
-## Notes
-
-Amazon sometimes encrypts parts of the order-history HTML until the page runs in
-Chromium. `amzn` first uses Browser Curl, then falls back to reading the
-rendered DOM from the same Kernel browser when the raw HTML contains encrypted
-placeholders.
-
 ## Development
 
 ```sh
