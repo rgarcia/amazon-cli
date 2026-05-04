@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -211,31 +210,21 @@ func NewKernelTransport(opts Options) (*KernelTransport, error) {
 }
 
 func (t *KernelTransport) CreateBrowser(ctx context.Context, opts Options) (string, error) {
-	var res browserCreateResponse
-	if err := t.client.Execute(ctx, http.MethodPost, "browsers", newBrowserCreateParams(opts), &res); err != nil {
+	res, err := t.client.Browsers.New(ctx, newBrowserNewParams(opts))
+	if err != nil {
 		return "", err
 	}
 	return res.SessionID, nil
 }
 
-type browserCreateParams struct {
-	ProfileID      string `json:"profile_id,omitempty"`
-	ProfileName    string `json:"profile_name,omitempty"`
-	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
-}
-
-type browserCreateResponse struct {
-	SessionID string `json:"session_id"`
-}
-
-func newBrowserCreateParams(opts Options) browserCreateParams {
-	params := browserCreateParams{
-		TimeoutSeconds: opts.BrowserTimeout,
+func newBrowserNewParams(opts Options) kernel.BrowserNewParams {
+	params := kernel.BrowserNewParams{
+		TimeoutSeconds: kernel.Int(int64(opts.BrowserTimeout)),
 	}
 	if opts.KernelProfileID != "" {
-		params.ProfileID = opts.KernelProfileID
+		params.Profile = kernel.BrowserProfileParam{ID: kernel.String(opts.KernelProfileID)}
 	} else {
-		params.ProfileName = opts.KernelProfileName
+		params.Profile = kernel.BrowserProfileParam{Name: kernel.String(opts.KernelProfileName)}
 	}
 	return params
 }
