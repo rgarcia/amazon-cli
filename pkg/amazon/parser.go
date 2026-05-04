@@ -450,10 +450,17 @@ func isFooterProductLink(href string) bool {
 }
 
 func looksLikeSignIn(html string) bool {
-	lower := strings.ToLower(html)
-	return strings.Contains(lower, `id="ap_password"`) ||
-		strings.Contains(lower, `name="password"`) ||
-		strings.Contains(lower, `name='password'`)
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return false
+	}
+	doc.Find("script, style, noscript, template, svg").Remove()
+	return doc.Find("form").FilterFunction(func(_ int, form *goquery.Selection) bool {
+		action, _ := form.Attr("action")
+		return form.Find("input[type='password'], input#ap_password, input[name='password']").Length() > 0 &&
+			(strings.Contains(strings.ToLower(action), "/ap/signin") ||
+				form.Find("input#ap_email, input[name='email'], input#ap_password").Length() > 0)
+	}).Length() > 0
 }
 
 func absoluteURL(baseURL, href string) string {

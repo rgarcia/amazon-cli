@@ -146,6 +146,43 @@ func TestParseOrderDetailUsesBoundedSummaryFields(t *testing.T) {
 	assert.Empty(t, order.Addresses)
 }
 
+func TestParseOrdersPageIgnoresScriptSignInMarkers(t *testing.T) {
+	html := `
+<html><body>
+  <script>
+    window.template = '<input id="ap_password" name="password">';
+  </script>
+  <div class="order-card js-order-card" data-order-id="111-2222222-3333333">
+    <div>ORDER PLACED March 14, 2026 TOTAL $42.17 SHIP TO Raf ORDER # 111-2222222-3333333</div>
+    <div>Delivered March 16</div>
+    <a href="/gp/your-account/order-details?orderID=111-2222222-3333333">View order details</a>
+  </div>
+</body></html>`
+
+	page, err := ParseOrdersPage(html, "https://www.amazon.com/gp/your-account/order-history?orderFilter=year-2026", ListOrdersOptions{
+		TimeFilter: "year-2026",
+	})
+	require.NoError(t, err)
+	require.Len(t, page.Orders, 1)
+	assert.Equal(t, "111-2222222-3333333", page.Orders[0].ID)
+}
+
+func TestParseOrdersPageRejectsActualSignInForm(t *testing.T) {
+	html := `
+<html><body>
+  <form action="/ap/signin">
+    <input id="ap_email" name="email">
+    <input id="ap_password" name="password" type="password">
+  </form>
+</body></html>`
+
+	_, err := ParseOrdersPage(html, "https://www.amazon.com/gp/your-account/order-history?orderFilter=year-2026", ListOrdersOptions{
+		TimeFilter: "year-2026",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Amazon sign-in page returned")
+}
+
 func TestParseProductSearchPage(t *testing.T) {
 	page, err := ParseProductSearchPage(sampleProductSearchHTML, "https://www.amazon.com/s?k=wireless+mouse", SearchProductsOptions{
 		Query: "wireless mouse",
