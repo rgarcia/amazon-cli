@@ -2,6 +2,7 @@ package amazon
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,4 +55,27 @@ func TestGetOrderBuildsOrderDetailURL(t *testing.T) {
 	assert.Contains(t, ft.url, "orderID=111-2222222-3333333")
 	assert.Equal(t, "Delivered", order.Status)
 	assert.Equal(t, "USB-C Cable", order.Items[0].Title)
+}
+
+func TestBrowserCreateParamsUsesTopLevelProfileName(t *testing.T) {
+	params := newBrowserCreateParams(Options{
+		KernelProfileName: "amazon",
+		BrowserTimeout:    300,
+	})
+	b, err := json.Marshal(params)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"profile_name":"amazon","timeout_seconds":300}`, string(b))
+	assert.NotContains(t, string(b), `"profile"`)
+}
+
+func TestBrowserCreateParamsPrefersTopLevelProfileID(t *testing.T) {
+	params := newBrowserCreateParams(Options{
+		KernelProfileID:   "profile_123",
+		KernelProfileName: "amazon",
+		BrowserTimeout:    300,
+	})
+	b, err := json.Marshal(params)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"profile_id":"profile_123","timeout_seconds":300}`, string(b))
+	assert.NotContains(t, string(b), `"profile_name"`)
 }
